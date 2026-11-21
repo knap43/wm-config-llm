@@ -76,9 +76,14 @@ python3 -m eval.eval --jobs 4
 Requirements: Python 3.9+, `llama-cpp` (Arch's package includes a Sandy Bridge
 CPU backend, so no AVX2 is needed), `lua` for Hyprland, and the compositor.
 
+A trained model is attached to the
+[v2 release](https://github.com/knap43/wm-config-llm/releases/tag/v2), so you
+need not train one yourself.
+
 ```fish
-sudo pacman -S llama-cpp lua
-./install.sh runs/minicpm5-1b/wmcfg-Q4_K_M.gguf   # copies the CLI and model
+sudo pacman -S llama-cpp lua github-cli
+gh release download v2 -R knap43/wm-config-llm -p '*.gguf'
+./install.sh wmcfg-Q4_K_M.gguf   # copies the CLI and model
 wmai serve &          # or: systemctl --user enable --now wmai-server
 wmai init
 wmai "bind super+b to firefox"
