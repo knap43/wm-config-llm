@@ -28,7 +28,7 @@ from wmllm.validate import validate_hyprland, validate_sway
 
 def chatml(messages) -> str:
     sys_m, user = messages[0]["content"], messages[1]["content"]
-    return (f"<s><|im_start|>system\n{sys_m}<|im_end|>\n<|im_start|>user\n{user}<|im_end|>\n<|im_start|>assistant\n")
+    return (f"<|im_start|>system\n{sys_m}<|im_end|>\n<|im_start|>user\n{user}<|im_end|>\n<|im_start|>assistant\n")
 
 
 def complete(server: str, prompt: str, grammar: bool) -> tuple[str, float]:
@@ -37,7 +37,8 @@ def complete(server: str, prompt: str, grammar: bool) -> tuple[str, float]:
         body["grammar"] = GRAMMAR
     req = urllib.request.Request(f"{server}/completion", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
     t0 = time.time()
-    with urllib.request.urlopen(req, timeout=600) as r:
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open(req, timeout=600) as r:
         return json.loads(r.read())["content"], time.time() - t0
 
 

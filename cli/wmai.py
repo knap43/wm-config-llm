@@ -159,8 +159,17 @@ def detect_wm(explicit: str | None) -> WM:
 
 def chatml(wm: str, user: str) -> str:
     # Mirrors the MiniCPM5 chat template with add_generation_prompt and no thinking block.
-    return (f"<s><|im_start|>system\n{SYSTEM_PROMPTS[wm]}<|im_end|>\n"
+    # No literal <s>: the GGUF sets add_bos_token, so llama-server prepends BOS itself.
+    return (f"<|im_start|>system\n{SYSTEM_PROMPTS[wm]}<|im_end|>\n"
             f"<|im_start|>user\n{user}<|im_end|>\n<|im_start|>assistant\n")
+
+
+def _opener():
+    # Never send requests for a local model server through an HTTP proxy.
+    host = urllib.request.urlparse(SERVER).hostname or ""
+    if host in ("localhost", "127.0.0.1", "::1") or host.startswith("127."):
+        return urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    return urllib.request.build_opener()
 
 
 def complete(prompt: str, temperature: float, seed: int) -> str:
@@ -169,7 +178,7 @@ def complete(prompt: str, temperature: float, seed: int) -> str:
     req = urllib.request.Request(f"{SERVER}/completion", data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=600) as r:
+        with _opener().open(req, timeout=600) as r:
             return json.loads(r.read())["content"]
     except urllib.error.URLError as e:
         sys.exit(f"cannot reach llama-server at {SERVER} ({e.reason}). Start it with `wmai serve`.")
