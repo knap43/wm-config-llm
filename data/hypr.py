@@ -406,7 +406,7 @@ def fam_num(rng, W: HyprWorld, managed):
         up = rng.random() < 0.5
         if (up and cur >= hi) or (not up and cur <= lo):
             up = not up
-        mult = rng.choice([1, 1, 2]) if not is_float else 1
+        mult = 2 if (not is_float and rng.random() < 0.25) else 1
         new = _fmt_num(min(hi, max(lo, cur + (step * mult if up else -step * mult))), is_float)
         if new == cur:
             return None
@@ -414,8 +414,12 @@ def fam_num(rng, W: HyprWorld, managed):
             req = pick(rng, ["make {n} less transparent", "increase {n}"] if up else
                        ["make {n} more transparent", "decrease {n}", "lower {n} a bit"], n=name)
         else:
-            req = pick(rng, ["make {n} bigger", "increase {n}", "bump up {n} a bit", "more {n}", "{n} is too small", "raise {n}"] if up else
-                       ["make {n} smaller", "decrease {n}", "reduce {n}", "less {n}", "{n} is too big", "lower {n}"], n=name)
+            if mult == 2:
+                req = pick(rng, ["make {n} a lot bigger", "increase {n} a lot", "much bigger {n}", "{n} is way too small"] if up else
+                           ["make {n} a lot smaller", "decrease {n} a lot", "much smaller {n}", "{n} is way too big"], n=name)
+            else:
+                req = pick(rng, ["make {n} bigger", "increase {n}", "bump up {n} a bit", "more {n}", "{n} is too small", "raise {n}"] if up else
+                           ["make {n} smaller", "decrease {n}", "reduce {n}", "less {n}", "{n} is too big", "lower {n}"], n=name)
         summary = f"{'Increase' if up else 'Decrease'} {path} from {cur_s} to {lval(new)}"
         if from_main:
             evidence = [cur_line]
@@ -536,10 +540,14 @@ def fam_colors(rng, W: HyprWorld, managed):
                                       [(f"cfg:{path}", cfg_line(path, lstr(f"rgb({hexv})")))], ref=f"the {which} border color")
     if r < 0.75:
         a, b = rng.sample(list(COLORS), 2)
-        angle = rng.choice([45, 45, 90, 0, 135])
-        req = pick(rng, ["make the active border a gradient from {a} to {b}", "gradient border {a} to {b}",
-                         "use a {a}-to-{b} gradient for the focused border", "active border: gradient {a} → {b}, {ang} degrees"],
-                   a=a, b=b, ang=angle)
+        if rng.random() < 0.35:
+            angle = rng.choice([0, 90, 135, 180, 270])
+            req = pick(rng, ["active border: gradient {a} → {b}, {ang} degrees", "gradient from {a} to {b} at {ang}° for the active border",
+                             "make the focused border a {a}/{b} gradient angled {ang} degrees"], a=a, b=b, ang=angle)
+        else:
+            angle = 45
+            req = pick(rng, ["make the active border a gradient from {a} to {b}", "gradient border {a} to {b}",
+                             "use a {a}-to-{b} gradient for the focused border"], a=a, b=b)
         val = f'{{ angle = {angle}, colors = {{ "rgb({COLORS[a]})", "rgb({COLORS[b]})" }} }}'
         return vary(rng, req), Change(f"Set the active border to a {a}-to-{b} gradient at {angle} degrees",
                                       [("cfg:general.col.active_border", cfg_line("general.col.active_border", val))],
@@ -821,7 +829,8 @@ def fam_bind_bulk(rng, W: HyprWorld, managed):
                                                    adds, ref="the vim-key binds", evidence=ev)
     if r < 0.6:
         mods = rng.choice([["SUPER", "CTRL"], ["SUPER", "ALT"]])
-        step = rng.choice([20, 30, 40, 50])
+        stated = rng.random() < 0.5
+        step = rng.choice([10, 20, 40, 50]) if stated else 30
         deltas = {"left": (-step, 0), "right": (step, 0), "up": (0, -step), "down": (0, step)}
         adds, ev = [], []
         for d, (x, y) in deltas.items():
@@ -832,8 +841,8 @@ def fam_bind_bulk(rng, W: HyprWorld, managed):
             adds += got[0]
             ev += got[1]
         sp = spoken_combo(rng, mods, "arrows")
-        req = rng.choice([f"resize windows with {sp}", f"{sp} should resize the active window by {step}px",
-                          f"let me resize windows from the keyboard using {sp}"])
+        req = (rng.choice([f"{sp} should resize the active window by {step}px", f"resize windows with {sp} in {step}px steps"]) if stated else
+               rng.choice([f"resize windows with {sp}", f"let me resize windows from the keyboard using {sp}"]))
         return vary(rng, req), Change(f"Bind {hkey(mods, 'arrows')} to resize the window by {step}px (repeating)",
                                       adds, ref="the resize binds", evidence=ev)
     if r < 0.8:
@@ -953,7 +962,8 @@ def fam_unbind(rng, W: HyprWorld, managed):
 
 def fam_submap(rng, W: HyprWorld, managed):
     mods, key, kspoken = rng.choice([(["SUPER"], "R", "r"), (["SUPER", "SHIFT"], "R", "r"), (["SUPER", "ALT"], "R", "r"), (["ALT"], "R", "r")])
-    step = rng.choice([10, 20, 30, 40])
+    stated = rng.random() < 0.4
+    step = rng.choice([10, 30, 40, 50]) if stated else 20
     got = make_bind(W, managed, mods, key, 'hl.dsp.submap("resize")')
     if got is None:
         return None
@@ -964,8 +974,9 @@ def fam_submap(rng, W: HyprWorld, managed):
                     for k, x, y in keys)
     submap = f'hl.define_submap("resize", function() {body} hl.bind("Escape", hl.dsp.submap("reset")) hl.bind("Return", hl.dsp.submap("reset")) end)'
     adds = adds + [("submap:resize", submap)]
-    req = pick(rng, ["add a resize mode on {k}", "{k} should enter a resize mode where {d} resize the window",
-                     "i want an i3-style resize mode bound to {k}", "create a resize submap on {k}, {s}px steps"],
+    req = pick(rng, ["create a resize submap on {k} where {d} resize by {s}px", "{k}: resize mode with {d}, {s} pixel steps"] if stated else
+               ["add a resize mode on {k} using {d}", "{k} should enter a resize mode where {d} resize the window",
+                "i want an i3-style resize mode bound to {k} ({d})"],
                k=spoken_combo(rng, mods, kspoken), d="hjkl" if vim else "the arrow keys", s=step)
     return vary(rng, req), Change(f"Add a resize submap on {hkey(mods, key)} ({'hjkl' if vim else 'arrows'}, {step}px; Escape/Return to leave){_desc_replaced(replaced)}",
                                   adds, ref="the resize mode", evidence=ev)
@@ -1005,9 +1016,13 @@ def fam_window_rule(rng, W: HyprWorld, managed):
         summary, key = f"Open {app.app_id} on workspace {ws}{' silently' if silent else ''}", "workspace"
     elif r < 0.58:
         if rng.random() < 0.5:
-            a = rng.choice([0.8, 0.85, 0.9, 0.95])
+            if rng.random() < 0.3:
+                a = 0.9
+                req = pick(rng, ["make {a} slightly transparent", "{a} a little see-through"], a=n)
+            else:
+                a = rng.choice([0.7, 0.75, 0.8, 0.85, 0.9, 0.95])
+                req = pick(rng, ["set {a} opacity to {o}", "{a} at {p}% opacity", "make {a} {p} percent opaque"], a=n, o=a, p=int(round(a * 100)))
             effects = f"opacity = {lval(a)}"
-            req = pick(rng, ["make {a} slightly transparent", "set {a} opacity to {o}", "{a} at {p}% opacity"], a=n, o=a, p=int(a * 100))
             summary = f"Set {app.app_id} opacity to {lval(a)}"
         else:
             a, b = rng.choice([(0.95, 0.85), (0.9, 0.8), (1.0, 0.85), (0.92, 0.75)])
@@ -1117,9 +1132,13 @@ def fam_layer_rule(rng, W: HyprWorld, managed):
     if r < 0.5:
         effects, req, summary, key = "blur = true", pick(rng, ["blur {n}", "add blur behind {n}", "make {n} blurred", "i want {n} to have a blurred background"], n=name), f"Blur the {ns} layer", "blur"
     elif r < 0.7:
-        a = rng.choice([0.2, 0.3, 0.5])
+        if rng.random() < 0.4:
+            a = rng.choice([0.1, 0.2, 0.5, 0.6])
+            req = pick(rng, ["blur {n}, ignoring alpha below {a}", "blur {n} with ignore_alpha {a}"], n=name, a=a)
+        else:
+            a = 0.3
+            req = pick(rng, ["blur {n} but not its transparent edges", "blur {n} and ignore fully transparent pixels"], n=name)
         effects = f"blur = true, ignore_alpha = {lval(a)}"
-        req = pick(rng, ["blur {n} but not its transparent edges", "blur {n} and ignore fully transparent pixels"], n=name)
         summary, key = f"Blur the {ns} layer, ignoring alpha below {lval(a)}", "blur"
     elif r < 0.85:
         effects, req, summary, key = "no_anim = true", pick(rng, ["disable animations for {n}", "{n} shouldn't animate"], n=name), f"Disable animations for the {ns} layer", "anim"

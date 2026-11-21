@@ -241,11 +241,16 @@ def fam_num(rng, W: SwayWorld, managed):
         up = rng.random() < 0.5
         if (up and cur >= hi) or (not up and cur <= lo):
             up = not up
-        new = min(hi, max(lo, cur + (step if up else -step) * rng.choice([1, 1, 2])))
+        mult = 2 if rng.random() < 0.25 else 1
+        new = min(hi, max(lo, cur + (step if up else -step) * mult))
         if new == cur:
             return None
-        req = pick(rng, ["make {n} bigger", "increase {n}", "bump up {n}", "{n} is too small", "more {n}"] if up else
-                   ["make {n} smaller", "decrease {n}", "reduce {n}", "{n} is too big", "less {n}"], n=name)
+        if mult == 2:
+            req = pick(rng, ["make {n} a lot bigger", "increase {n} a lot", "{n} is way too small"] if up else
+                       ["make {n} a lot smaller", "decrease {n} a lot", "{n} is way too big"], n=name)
+        else:
+            req = pick(rng, ["make {n} bigger", "increase {n}", "bump up {n}", "{n} is too small", "more {n}"] if up else
+                       ["make {n} smaller", "decrease {n}", "reduce {n}", "{n} is too big", "less {n}"], n=name)
         summary = f"{'Increase' if up else 'Decrease'} {prefix.strip()} from {cur} to {new}"
         if from_main:
             ev = [line]
@@ -612,7 +617,13 @@ def fam_bind_bulk(rng, W: SwayWorld, managed):
             return None
         adds += got[0]
         ev += got[1]
-    req = rng.choice([f"resize windows with {spoken(rng, mods, 'arrows', W.modv)}", f"let me resize from the keyboard with ctrl+mod+arrows, {step}px steps"])
+    if rng.random() < 0.5:
+        req = rng.choice([f"let me resize from the keyboard with ctrl+mod+arrows, {step}px steps",
+                          f"resize windows with {spoken(rng, mods, 'arrows', W.modv)} by {step}px"])
+    else:
+        step = 30
+        req = rng.choice([f"resize windows with {spoken(rng, mods, 'arrows', W.modv)}", "let me resize windows from the keyboard with ctrl+mod+arrows"])
+        adds = [(slot, re.sub(r"\d+px$", "30px", line)) for slot, line in adds]
     return vary(rng, req), Change(f"Bind {skey(mods, 'arrows', W.modv)} to resize by {step}px", adds, ref="the resize binds", evidence=ev)
 
 
@@ -713,9 +724,13 @@ def fam_window_rule(rng, W: SwayWorld, managed):
         req = pick(rng, ["always open {a} on workspace {w}", "{a} should go to workspace {w}", "assign {a} to workspace {w}"], a=n, w=ws)
         summary, key = f"Assign {app.app_id} to workspace {ws}", "assign"
     elif r < 0.7:
-        a = rng.choice([0.8, 0.85, 0.9, 0.95])
+        if rng.random() < 0.3:
+            a = 0.9
+            req = pick(rng, ["make {a} slightly transparent", "{a} a little see-through"], a=n)
+        else:
+            a = rng.choice([0.7, 0.75, 0.8, 0.85, 0.9, 0.95])
+            req = pick(rng, ["set {a} opacity to {o}", "{a} at {p}% opacity", "make {a} {p} percent opaque"], a=n, o=a, p=int(round(a * 100)))
         line = f"for_window {c} opacity {a}"
-        req = pick(rng, ["make {a} slightly transparent", "set {a} opacity to {o}", "{a} at {p}% opacity"], a=n, o=a, p=int(a * 100))
         summary, key = f"Set {app.app_id} opacity to {a}", "opacity"
     elif r < 0.78:
         line = f"for_window {c} inhibit_idle fullscreen"
