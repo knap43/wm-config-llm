@@ -8,7 +8,7 @@ app="$data/app"
 bin="$HOME/.local/bin"
 
 mkdir -p "$app/wmllm" "$app/cli" "$bin"
-install -m 644 "$here"/wmllm/__init__.py "$here"/wmllm/context.py "$here"/wmllm/validate.py "$here"/wmllm/flatten_hypr.lua "$app/wmllm/"
+install -m 644 "$here"/wmllm/__init__.py "$here"/wmllm/context.py "$here"/wmllm/validate.py "$here"/wmllm/mango.py "$here"/wmllm/flatten_hypr.lua "$app/wmllm/"
 install -m 755 "$here/cli/wmai.py" "$app/cli/wmai.py"
 ln -sf "$app/cli/wmai.py" "$bin/wmai"
 echo "installed wmai -> $bin/wmai"

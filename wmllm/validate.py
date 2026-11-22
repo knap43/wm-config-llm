@@ -205,3 +205,57 @@ def sway_runtime_commands(line: str) -> list[str]:
             body = m.group(1)
             return [c for c in _split_commands(body) if not c.startswith("exec")]
     return []
+
+
+# --------------------------------------------------------------------------
+# MangoWC
+# --------------------------------------------------------------------------
+
+def mango_errors_for_file(config: Path, ignore_missing_files: bool = False) -> list[str]:
+    """`mango -p` parses only (it never starts the compositor or runs exec lines).
+
+    Errors are printed as `[ERROR]: message` followed by an index line naming
+    the file and line. Key binding conflicts are only informational to mango,
+    but here they mean a rebind without its wmai_disable, so they count.
+    """
+    proc = subprocess.run(["mango", "-p", "-c", str(config)], capture_output=True, text=True, timeout=30)
+    lines = ANSI.sub("", proc.stdout + proc.stderr).splitlines()
+    errors, ignored = [], False
+    for i, line in enumerate(lines):
+        msg = None
+        if "[ERROR]" in line:
+            msg = line.split("[ERROR]", 1)[1].lstrip(": ").strip()
+            if ignore_missing_files and msg.startswith("Failed to open config file"):
+                ignored = True
+                continue
+        elif "conflict in keymode" in line:
+            # Only conflicts involving the managed file are ours; clashes inside the
+            # main config (e.g. two stock binds sharing a keycode in some layouts) are not.
+            files = re.findall(r'File "([^"]+)"', "\n".join(lines[i + 1:i + 3]))
+            if not any(Path(f).name.endswith("ai.conf") for f in files):
+                ignored = True
+                continue
+            msg = line.split("]", 1)[-1].lstrip(": ").strip()
+        if msg is None:
+            continue
+        where = " ".join(l.strip(" ╰─") for l in lines[i + 1:i + 3] if l.strip() and "[ERROR]" not in l and "[WARN]" not in l
+                         and "[INFO]" not in l)
+        errors.append(f"{msg} ({where.replace(str(config.parent) + '/', '')})" if where else msg)
+    if proc.returncode != 0 and not errors and not ignored:
+        errors.append(f"mango -p failed (exit {proc.returncode})")
+    return list(dict.fromkeys(errors))
+
+
+def validate_mango(main_text: str, managed: list[str], source_token: str = "@MANAGED@",
+                   ignore_missing_files: bool = False) -> list[str]:
+    """Validate a main config whose `source=` line names `source_token`, plus managed lines."""
+    from wmllm.mango import apply_disables, managed_text
+    d = Path(_tmpdir())
+    try:
+        text, unmatched = apply_disables(main_text, managed)
+        errs = [f"wmai_disable matches no line of the main config: {u}" for u in unmatched]
+        (d / "ai.conf").write_text(managed_text(managed))
+        (d / "config.conf").write_text(text.replace(source_token, str(d / "ai.conf")))
+        return errs + mango_errors_for_file(d / "config.conf", ignore_missing_files)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)

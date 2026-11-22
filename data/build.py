@@ -7,7 +7,7 @@ from a different seed and a different sampling seed, so it measures
 generalisation to configs the model has never seen.
 
 Every sample is validated twice with the real compositor (managed file before
-and after the edit). For Sway, every command inside an added bindsym /
+and after the edit; mango samples with `mango -p`). For Sway, every command inside an added bindsym /
 for_window / bindgesture line is also executed in a headless Sway.
 """
 
@@ -21,12 +21,12 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from data import hypr, sway
+from data import hypr, mango, sway
 from data.engine import build_one
 from wmllm.context import SYSTEM_PROMPTS, render_user
-from wmllm.validate import SwayCommandChecker, sway_runtime_commands, validate_hyprland, validate_sway
+from wmllm.validate import SwayCommandChecker, sway_runtime_commands, validate_hyprland, validate_mango, validate_sway
 
-MODULES = {"hyprland": hypr, "sway": sway}
+MODULES = {"hyprland": hypr, "sway": sway, "mango": mango}
 
 
 def generate(wm: str, n: int, n_worlds: int, world_seed: int, sample_seed: int):
@@ -52,6 +52,9 @@ def validate_all(wm: str, worlds, samples, jobs: int):
         text = worlds[b.world_id].text
         if wm == "hyprland":
             return validate_hyprland(text, b.managed_before) or validate_hyprland(text, b.managed_after)
+        if wm == "mango":
+            return (validate_mango(text, b.managed_before, ignore_missing_files=True)
+                    or validate_mango(text, b.managed_after, ignore_missing_files=True))
         return (validate_sway(text, b.managed_before, ignore_missing_files=True)
                 or validate_sway(text, b.managed_after, ignore_missing_files=True))
 
@@ -112,7 +115,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     splits = {"train": [], "val": [], "test": []}
     report = {}
-    for wm in ("hyprland", "sway"):
+    for wm in ("hyprland", "sway", "mango"):
         plan = [("trainval", args.per_wm, 1, 100, args.worlds), ("test", args.test_per_wm, 2, 200, max(40, args.worlds // 10))]
         if args.only_test:
             plan = plan[1:]

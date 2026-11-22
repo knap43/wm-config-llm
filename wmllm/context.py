@@ -19,7 +19,8 @@ Answer layout (assistant turn):
 `del:` lines remove an exact line from the managed file; `add:` lines append
 one. The model never edits the user's main config: it writes only to the
 managed file (ai.conf / ai.lua), which the main config includes last, so its
-settings take precedence.
+settings take precedence. (For mango, `wmai_disable=` lines additionally make
+the CLI comment out exact main-config lines; see wmllm/mango.py.)
 """
 
 from __future__ import annotations
@@ -28,6 +29,8 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from wmllm.mango import combo_of_bind, flatten_mango  # noqa: F401  (re-exported)
 
 HERE = Path(__file__).resolve().parent
 FLATTEN_LUA = HERE / "flatten_hypr.lua"
@@ -53,6 +56,17 @@ SYSTEM_PROMPTS = {
         "per line, one config key per hl.config call. Before rebinding a key "
         "that is already bound, add hl.unbind for it. If the request is not "
         "about Hyprland configuration, answer with a summary line only."
+    ),
+    "mango": (
+        "You edit MangoWC 0.18 configuration (config.conf, key=value lines). You "
+        "write only to a managed file that is sourced at the end of the user's "
+        "config, so its options and rules override earlier ones. Mango runs only "
+        "the first matching binding and has no unbind: before binding a key, "
+        "gesture or switch that the config already binds, add 'wmai_disable=' "
+        "followed by that exact config line. Answer with one 'summary:' line, "
+        "then 'del:' lines that remove exact lines from the managed file and "
+        "'add:' lines that append new ones. One directive per line. If the "
+        "request is not about MangoWC configuration, answer with a summary line only."
     ),
 }
 
@@ -119,6 +133,8 @@ def flatten_hyprland(config_path: str | Path, managed_module: str = "ai") -> lis
 def is_managed_include(wm: str, line: str) -> bool:
     if wm == "sway":
         return bool(re.match(r"^include\s+\S*ai\.conf\s*$", line))
+    if wm == "mango":
+        return bool(re.match(r"^source(?:_optional)?=\S*ai\.conf$", line))
     return False
 
 
@@ -141,20 +157,20 @@ mod super alt ctrl control shift win logo meta mainmod
 # (request pattern, line pattern). If the request matches, lines matching the
 # second pattern become candidates.
 TOPICS: list[tuple[str, str]] = [
-    (r"gap|spacing|space between|padding|margin", r"gaps|smart_gaps"),
+    (r"gap|spacing|space between|padding|margin", r"gaps|smart_gaps|gap_"),
     (r"border|outline|frame", r"border|client\.|default_border|default_floating_border|hide_edge"),
     (r"colou?r|theme|accent|red|blue|green|purple|pink|orange|yellow|catppuccin|nord|gruvbox|dracula",
      r"col\b|col\.|color|colou?r|client\.|border"),
-    (r"round|corner", r"rounding|corner_radius"),
+    (r"round|corner", r"rounding|corner_radius|border_radius|no_radius"),
     (r"opacity|transparen|translucent|see.?through|opaque", r"opacity|opaque"),
     (r"blur|frosted|glass|acrylic", r"blur"),
     (r"shadow|drop.?shadow", r"shadow"),
     (r"anim|transition|motion|bezier|spring|smooth|snappy|speed up|slow down", r"animation|curve|anim"),
     (r"keyboard|layout|xkb|kb_|qwerty|azerty|dvorak|colemak|caps|compose|repeat",
      r"kb_|xkb|repeat|type:keyboard|input \*"),
-    (r"touchpad|trackpad|tap|natural|scroll|two.?finger|palm", r"touchpad|natural_scroll|tap|scroll|dwt|disable_while_typing"),
-    (r"mouse|cursor|pointer|sensitiv|accel", r"sensitivity|accel|cursor|follow_mouse|focus_follows_mouse|mouse_warping|seat"),
-    (r"focus follows|follow.?mouse|hover", r"follow_mouse|focus_follows_mouse"),
+    (r"touchpad|trackpad|tap|natural|scroll|two.?finger|palm", r"touchpad|trackpad|natural_scroll|tap|scroll|dwt|disable_while_typing"),
+    (r"mouse|cursor|pointer|sensitiv|accel", r"sensitivity|accel|cursor|follow_mouse|focus_follows_mouse|mouse_warping|seat|sloppy_focus|warp_cursor|mouse_"),
+    (r"focus follows|follow.?mouse|hover", r"follow_mouse|focus_follows_mouse|sloppy_focus"),
     (r"monitor|display|screen|output|resolution|refresh|hz|scale|hidpi|dpi|external|laptop screen|edp|hdmi|\bdp\b",
      r"hl\.monitor|^output|monitor"),
     (r"wallpaper|background|bg\b", r"wallpaper|swaybg|hyprpaper|\bbg\b|logo"),
@@ -171,7 +187,7 @@ TOPICS: list[tuple[str, str]] = [
     (r"close|kill|quit window", r"close|kill"),
     (r"fullscreen|full screen|maximi", r"fullscreen|maximize"),
     (r"float|tiling|tile", r"float|tile|floating"),
-    (r"workspace|desktop|virtual", r"workspace"),
+    (r"workspace|desktop|virtual", r"workspace|,view,|,tag,|tagsilent"),
     (r"scratchpad|special|magic|hidden", r"special|scratchpad"),
     (r"volume|audio|sound|mute|speaker|mic", r"Audio|volume|wpctl|pactl|pamixer"),
     (r"bright|backlight", r"Brightness|brightnessctl|light\b"),
@@ -188,13 +204,18 @@ TOPICS: list[tuple[str, str]] = [
     (r"env|environment|variable|cursor size|gtk|qt|theme", r"hl\.env|^env|XCURSOR|GTK|QT_"),
     (r"font|title ?bar|titlebar", r"font|title"),
     (r"rule|always|every time|whenever|open on|opens on|pavucontrol|picture.in.picture|pip",
-     r"window_rule|for_window|assign|no_focus"),
+     r"window_rule|for_window|assign|no_focus|tag_rule|layer_rule"),
     (r"group|tab", r"group|tab"),
-    (r"submap|mode|resize mode", r"submap|^mode"),
+    (r"submap|mode|resize mode", r"submap|^mode|key_mode|setkeymode"),
     (r"modifier|mod key|main key|super key", r"^set \$mod|floating_modifier"),
     (r"logo|anime|mascot|splash", r"logo|wallpaper|splash"),
     (r"tearing|vrr|adaptive|freesync|gsync|game", r"tearing|vrr|immediate|adaptive_sync"),
     (r"xwayland|x11", r"xwayland"),
+    (r"\btags?\b", r",view,|,tag,|tagsilent|tag_rule|toggleview|tagmon"),
+    (r"scroller|monocle|grid|deck|tile|tiling|master|centered", r"layout|scroller|master|monocle|deck|grid"),
+    (r"overview|expose|mission control|hot ?corner|hotarea", r"overview|hotarea"),
+    (r"lid|clamshell|laptop (?:is )?closed", r"switchbind|lid"),
+    (r"dim|inactive", r"dim_|unfocused"),
 ]
 
 _MODS = {
@@ -232,6 +253,8 @@ def combos_in_request(request: str, mod_value: str = "SUPER") -> set[tuple[froze
 
 
 def combo_of_line(wm: str, line: str, mod_value: str = "SUPER") -> tuple[frozenset, str] | None:
+    if wm == "mango":
+        return combo_of_bind(line[len("wmai_disable="):] if line.startswith("wmai_disable=") else line)
     if wm == "hyprland":
         m = re.match(r'^hl\.(?:un)?bind\("([^"]+)"', line)
         if not m:
@@ -265,7 +288,10 @@ def sway_mod_value(lines: list[str]) -> str:
 
 
 def _words(s: str) -> set[str]:
-    return {w for w in re.findall(r"[a-z][a-z0-9_\-]{2,}", s.lower()) if w not in STOPWORDS}
+    words = set(re.findall(r"[a-z][a-z0-9_\-]{2,}", s.lower()))
+    # Option names such as numlock_on or trackpad_natural_scrolling also match their parts.
+    words |= {p for w in list(words) if "_" in w for p in w.split("_") if len(p) >= 3}
+    return {w for w in words if w not in STOPWORDS}
 
 
 def select_context(wm: str, request: str, lines: list[str], k: int = MAX_CONTEXT_LINES) -> list[str]:

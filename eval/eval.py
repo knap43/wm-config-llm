@@ -23,7 +23,7 @@ from pathlib import Path
 
 from cli.wmai import GRAMMAR
 from wmllm.context import ParseError, apply_edit, parse_answer
-from wmllm.validate import validate_hyprland, validate_sway
+from wmllm.validate import validate_hyprland, validate_mango, validate_sway
 
 
 def chatml(messages) -> str:
@@ -56,7 +56,8 @@ def main():
     recs = [json.loads(l) for l in (data / "test.jsonl").read_text().splitlines()]
     if args.limit:
         recs = recs[: args.limit]
-    worlds = {wm: json.loads((data / f"worlds-{wm}-test.json").read_text()) for wm in ("hyprland", "sway")}
+    worlds = {wm: json.loads((data / f"worlds-{wm}-test.json").read_text()) for wm in ("hyprland", "sway", "mango")
+              if (data / f"worlds-{wm}-test.json").exists()}
 
     def run(rec):
         wm = rec["meta"]["wm"]
@@ -75,6 +76,8 @@ def main():
             valid = True
         elif wm == "hyprland":
             valid = not validate_hyprland(main_text, after)
+        elif wm == "mango":
+            valid = not validate_mango(main_text, after, ignore_missing_files=True)
         else:
             valid = not validate_sway(main_text, after, ignore_missing_files=True)
         return {**res, "parse": True, "exact": exact, "valid": valid, "noop_ref": ref.is_noop, "noop_pred": edit.is_noop}
@@ -88,7 +91,7 @@ def main():
         return f"{100 * sum(xs) / max(1, len(xs)):5.1f}%"
 
     print(f"{len(results)} samples in {total:.0f}s ({sum(r['secs'] for r in results) / len(results):.2f}s per request)")
-    for wm in ("hyprland", "sway", None):
+    for wm in ("hyprland", "sway", "mango", None):
         rs = [r for r in results if wm is None or r["wm"] == wm]
         noop = [r for r in rs if r.get("noop_ref")]
         print(f"{wm or 'all':9s} n={len(rs):4d}  parse {pct([r['parse'] for r in rs])}  exact {pct([r['exact'] for r in rs])}  "
