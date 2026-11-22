@@ -58,9 +58,9 @@ def main():
     ap.add_argument("--epochs", type=float, default=2.0)
     ap.add_argument("--lr", type=float, default=2e-4)
     ap.add_argument("--rank", type=int, default=64)
-    ap.add_argument("--batch", type=int, default=4)
-    ap.add_argument("--accum", type=int, default=4)
-    ap.add_argument("--max-len", type=int, default=1536)
+    ap.add_argument("--batch", type=int, default=2)
+    ap.add_argument("--accum", type=int, default=8)
+    ap.add_argument("--max-len", type=int, default=2048)
     ap.add_argument("--limit", type=int, default=0, help="use only N training samples (smoke tests)")
     args = ap.parse_args()
 
