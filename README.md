@@ -88,12 +88,12 @@ CPU backend, so no AVX2 is needed), `lua` for Hyprland, and the compositor
 (`sway`, `hyprland` or `mangowm`).
 
 A trained model is attached to the
-[v3 release](https://github.com/knap43/wm-config-llm/releases/tag/v3), so you
+[v4 release](https://github.com/knap43/wm-config-llm/releases/tag/v4), so you
 need not train one yourself.
 
 ```fish
 sudo pacman -S llama-cpp lua github-cli
-gh release download v3 -R knap43/wm-config-llm -p '*.gguf'
+gh release download v4 -R knap43/wm-config-llm -p '*.gguf'
 ./install.sh wmcfg-Q4_K_M.gguf   # copies the CLI and model
 wmai serve &          # or: systemctl --user enable --now wmai-server
 wmai init
