@@ -232,7 +232,7 @@ def _opener():
 
 
 def complete(prompt: str, temperature: float, seed: int) -> str:
-    body = {"prompt": prompt, "n_predict": 600, "temperature": temperature, "top_p": 0.95, "seed": seed,
+    body = {"prompt": prompt, "n_predict": 1024, "temperature": temperature, "top_p": 0.95, "seed": seed,
             "grammar": GRAMMAR, "stop": ["<|im_end|>"], "cache_prompt": True}
     req = urllib.request.Request(f"{SERVER}/completion", data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})

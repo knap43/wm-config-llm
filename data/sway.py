@@ -265,7 +265,8 @@ TOGGLES = [
     # slot, [(line, [phrases], summary)]
     ("smart_gaps", [("smart_gaps on", ["enable smart gaps", "no gaps when there's only one window"], "Enable smart gaps"),
                     ("smart_gaps off", ["disable smart gaps", "always show gaps, even with one window"], "Disable smart gaps")]),
-    ("smart_borders", [("smart_borders on", ["hide borders when there's only one window", "enable smart borders"], "Enable smart borders"),
+    ("smart_borders", [("smart_borders on", ["hide borders when there's only one window", "enable smart borders",
+                                             "no outline when only one window is on screen", "remove the window border when a window is alone"], "Enable smart borders"),
                        ("smart_borders off", ["disable smart borders"], "Disable smart borders")]),
     ("hide_edge_borders", [("hide_edge_borders smart", ["hide borders at the screen edges when there's one window"], "Hide edge borders when only one window is visible"),
                            ("hide_edge_borders none", ["show borders at the screen edges"], "Show edge borders")]),

@@ -162,7 +162,8 @@ TOPICS: list[tuple[str, str]] = [
     (r"colou?r|theme|accent|red|blue|green|purple|pink|orange|yellow|catppuccin|nord|gruvbox|dracula",
      r"col\b|col\.|color|colou?r|client\.|border"),
     (r"round|corner", r"rounding|corner_radius|border_radius|no_radius"),
-    (r"opacity|transparen|translucent|see.?through|opaque", r"opacity|opaque"),
+    (r"opacity|transparen|translucent|see.?through|opaque", r"opacity|opaque|blur"),
+    (r"only one|single|alone|lone\b|smart (?:gaps|borders)", r"w\[tv1\]|f\[1\]|smart|single"),
     (r"blur|frosted|glass|acrylic", r"blur"),
     (r"shadow|drop.?shadow", r"shadow"),
     (r"anim|transition|motion|bezier|spring|smooth|snappy|speed up|slow down", r"animation|curve|anim"),
@@ -294,6 +295,10 @@ def _words(s: str) -> set[str]:
     return {w for w in words if w not in STOPWORDS}
 
 
+ANIM_SPEED_RE = r"anim.*(?:fast|slow|speed|quick|snapp|sluggish|\dx|twice|half)|(?:fast|slow|speed|quick|snapp|\dx).*anim"
+ANIM_LINE_RE = re.compile(r"^(?:hl\.animation\(|animation_duration_)")
+
+
 def select_context(wm: str, request: str, lines: list[str], k: int = MAX_CONTEXT_LINES) -> list[str]:
     """Pick the main-config lines most relevant to the request, in file order."""
     lines = [l for l in lines if not is_managed_include(wm, l)]
@@ -321,6 +326,9 @@ def select_context(wm: str, request: str, lines: list[str], k: int = MAX_CONTEXT
             scores[i] = score - len(line) / 1000.0
 
     chosen = sorted(scores, key=lambda i: -scores[i])[:k]
+    if re.search(ANIM_SPEED_RE, req):
+        # Scaling the animation speed rewrites every animation line, so show them all.
+        chosen = list(dict.fromkeys(chosen + [i for i, l in enumerate(lines) if ANIM_LINE_RE.match(l)]))
     if wm == "sway":
         # Variables are always useful and cheap.
         sets = [i for i, l in enumerate(lines) if l.startswith("set $")][:8]

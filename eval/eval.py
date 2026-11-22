@@ -32,7 +32,7 @@ def chatml(messages) -> str:
 
 
 def complete(server: str, prompt: str, grammar: bool) -> tuple[str, float]:
-    body = {"prompt": prompt, "n_predict": 600, "temperature": 0.0, "stop": ["<|im_end|>"], "cache_prompt": False}
+    body = {"prompt": prompt, "n_predict": 1024, "temperature": 0.0, "stop": ["<|im_end|>"], "cache_prompt": False}
     if grammar:
         body["grammar"] = GRAMMAR
     req = urllib.request.Request(f"{server}/completion", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})

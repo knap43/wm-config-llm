@@ -303,13 +303,14 @@ def fam_num(rng, W: MangoWorld, managed):
 
 TOGGLES = [
     # key, phrases for 1, phrases for 0, what
-    ("blur", ["enable blur", "turn on blur behind windows", "frosted glass windows"], ["disable blur", "turn off the blur"], "blur"),
+    ("blur", ["enable blur", "turn on blur behind windows"], ["disable blur", "turn off the blur"], "blur"),
     ("blur_layer", ["blur layer surfaces like waybar and rofi", "blur behind the bar and launcher"], ["don't blur layer surfaces"], "layer blur"),
     ("shadows", ["enable window shadows", "add drop shadows"], ["disable shadows", "remove the window shadows"], "shadows"),
     ("shadow_only_floating", ["only floating windows should have shadows"], ["shadows on all windows, not just floating ones"], "floating-only shadows"),
     ("animations", ["enable animations", "turn animations on"], ["disable animations", "turn off all animations", "no animations please"], "animations"),
     ("smart_gaps", ["no gaps when there's only one window", "enable smart gaps"], ["always show gaps, even with one window", "disable smart gaps"], "smart gaps"),
-    ("no_border_when_single", ["hide the border when there's only one window"], ["show the border even with a single window"], "single-window border"),
+    ("no_border_when_single", ["hide the border when there's only one window", "no outline when only one window is on screen",
+                               "remove the window border when a window is alone", "smart borders"], ["show the border even with a single window"], "single-window border"),
     ("no_radius_when_single", ["square corners when only one window is open"], ["keep rounded corners with a single window"], "single-window corners"),
     ("sloppy_focus", ["enable focus follows mouse", "focus the window under the mouse"], ["disable focus follows mouse", "focus only on click"], "focus follows mouse"),
     ("warp_cursor", ["move the mouse to the focused window", "warp the cursor on focus change"], ["don't move the mouse when focus changes", "disable cursor warping"], "cursor warping"),
@@ -1016,8 +1017,63 @@ def fam_noop(rng, W: MangoWorld, managed):
     return vary(rng, req), Change(summary)
 
 
+TRANSPARENCY = {
+    "default": (("0.9", "0.8"), ["enable window transparency", "make windows transparent", "make my windows see-through",
+                                 "i want transparent windows", "turn on transparency"]),
+    "slight": (("0.95", "0.9"), ["make windows slightly transparent", "a little transparency on all windows"]),
+    "strong": (("0.85", "0.7"), ["make windows very transparent", "make windows really see-through"]),
+}
+
+
+def fam_look(rng, W: MangoWorld, managed):
+    if rng.random() < 0.5:
+        level = rng.choice(["default", "default", "slight", "strong"])
+        (act, ina), reqs = TRANSPARENCY[level]
+        want_blur = rng.random() < 0.4
+        req = rng.choice(reqs)
+        if want_blur:
+            generic = ["frosted glass windows", "transparent blurred windows", "enable transparency and blur"] if level == "default" else []
+            req = rng.choice([req + " with blur"] + generic)
+        adds = []
+        for key, v in (("focused_opacity", act), ("unfocused_opacity", ina)):
+            cur = W.value(key, managed)[0]
+            if cur is None or float(cur) != float(v):
+                adds.append((f"opt:{key}", f"{key}={v}"))
+        blur = W.value("blur", managed)[0]
+        if want_blur and blur != "1":
+            adds.append(("opt:blur", "blur=1"))
+        if not adds:
+            return None
+        summary = f"Make focused windows {int(float(act) * 100)}% and unfocused windows {int(float(ina) * 100)}% opaque"
+        if want_blur:
+            summary += ", with blur behind them" + (" (already enabled)" if blur == "1" else "")
+        return vary(rng, req), Change(summary, adds, ref="the transparency")
+    # Animation speed: scale every duration (milliseconds, so lower is faster).
+    factor, reqs = rng.choice([
+        (0.5, ["make the animations faster", "speed up the animations", "animations are too slow", "make animations twice as fast",
+               "2x faster animations", "make animations snappier"]),
+        (0.75, ["make the animations a bit faster", "slightly faster animations"]),
+        (2.0, ["slow down the animations", "make animations slower", "animations are too fast", "make the animations half as fast"]),
+        (1.5, ["make the animations a bit slower"]),
+    ])
+    adds, ev = [], []
+    for key in ("animation_duration_move", "animation_duration_open", "animation_duration_tag", "animation_duration_close",
+                "animation_duration_focus"):
+        cur, line, from_main = W.value(key, managed)
+        if cur is None or not cur.isdigit() or int(cur) == 0:
+            continue
+        adds.append((f"opt:{key}", f"{key}={max(10, int(round(int(cur) * factor)))}"))
+        if from_main:
+            ev.append(line)
+    if not adds:
+        return None
+    verb = "Speed up" if factor < 1 else "Slow down"
+    return vary(rng, rng.choice(reqs)), Change(f"{verb} all animations: every duration x{factor:g}", adds,
+                                              ref="the animation speed", evidence=ev)
+
+
 FAMILIES = [
-    (9, "num", fam_num), (10, "toggle", fam_toggle), (3, "enum", fam_enum), (2.5, "opacity", fam_opacity), (5, "keyboard", fam_keyboard),
+    (9, "num", fam_num), (10, "toggle", fam_toggle), (3, "enum", fam_enum), (2.5, "opacity", fam_opacity), (3, "look", fam_look), (5, "keyboard", fam_keyboard),
     (4, "colors", fam_colors), (1.5, "cursor", fam_cursor), (12, "bind_app", fam_bind_app), (2.5, "swap_app", fam_swap_app),
     (12, "bind_action", fam_bind_action), (3, "bind_bulk", fam_bind_bulk), (5, "media", fam_media), (4, "unbind", fam_unbind),
     (1.5, "submap", fam_submap), (2, "gesture", fam_gesture), (1, "lid", fam_lid), (9, "window_rule", fam_window_rule),
@@ -1026,4 +1082,4 @@ FAMILIES = [
 ]
 
 PRIOR_FAMILIES = [fam_num, fam_toggle, fam_enum, fam_opacity, fam_keyboard, fam_colors, fam_bind_app, fam_bind_action, fam_media,
-                  fam_window_rule, fam_tag_rule, fam_monitor, fam_autostart, fam_gesture, fam_cursor, fam_unbind, fam_env]
+                  fam_window_rule, fam_tag_rule, fam_monitor, fam_autostart, fam_gesture, fam_cursor, fam_unbind, fam_env, fam_look]

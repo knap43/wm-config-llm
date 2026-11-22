@@ -445,7 +445,10 @@ def fam_bool(rng, W: HyprWorld, managed):
     if cur_s == lval(value):
         if from_main and rng.random() < 0.5:
             state = "already " + ("set" if path in INVERTED_BOOL else ("enabled" if value else "disabled"))
-            return vary(rng, phrase), Change(f"{path} is {state} ({lval(value)}) in your config; nothing to change.",
+            note = ""
+            if path == "decoration.blur.enabled" and value and _fully_opaque(W, managed):
+                note = " Blur only shows behind transparent windows, and yours are fully opaque; ask for transparent windows to see it."
+            return vary(rng, phrase), Change(f"{path} is {state} ({lval(value)}) in your config; nothing to change.{note}",
                                              evidence=[cur_line])
         return None
     verb = "Enable" if value else "Disable"
@@ -1117,7 +1120,7 @@ def fam_workspace_rule(rng, W: HyprWorld, managed):
         ("wrule:smartgaps:wtv1", 'hl.window_rule({ match = { float = false, workspace = "w[tv1]" }, border_size = 0, rounding = 0 })'),
         ("wrule:smartgaps:f1", 'hl.window_rule({ match = { float = false, workspace = "f[1]" }, border_size = 0, rounding = 0 })'),
     ]
-    req = rng.choice(["enable smart gaps", "no gaps when there's only one window", "remove gaps and borders when a window is alone",
+    req = rng.choice(["enable smart gaps", "remove gaps and borders when a window is alone",
                       "smart gaps like in sway"])
     return vary(rng, req), Change("Smart gaps: no gaps, border or rounding when a workspace has a single window", lines, ref="smart gaps")
 
@@ -1438,6 +1441,125 @@ def fam_noop(rng, W: HyprWorld, managed):
     req, summary = rng.choice(OFF_TOPIC)
     return vary(rng, req), Change(summary)
 
+# ---------------------------------------------------------------- whole-look intents
+
+def _fully_opaque(W: HyprWorld, managed) -> bool:
+    vals = [_parse_num(W.cfg(f"decoration.{k}_opacity", managed)[0]) for k in ("active", "inactive")]
+    return all(v is None or v >= 1 for v in vals)
+
+
+TRANSPARENCY = {
+    "default": ((0.9, 0.8), ["enable window transparency", "make windows transparent", "make my windows see-through",
+                             "i want transparent windows", "turn on transparency", "add transparency to the windows"]),
+    "slight": ((0.95, 0.9), ["make windows slightly transparent", "a little transparency on all windows",
+                             "make the windows a bit see-through"]),
+    "strong": ((0.85, 0.7), ["make windows very transparent", "lots of transparency please", "make windows really see-through"]),
+}
+
+
+def _transparency(rng, W: HyprWorld, managed):
+    level = rng.choice(["default", "default", "slight", "strong"])
+    (act, ina), reqs = TRANSPARENCY[level]
+    want_blur = rng.random() < 0.4
+    req = rng.choice(reqs)
+    if want_blur:
+        generic = ["frosted glass windows", "transparent blurred windows", "enable transparency and blur"] if level == "default" else []
+        req = rng.choice([req + " with blur", req + " and blur what's behind them"] + generic)
+    adds, ev = [], []
+    for k, v in (("active", act), ("inactive", ina)):
+        path = f"decoration.{k}_opacity"
+        cur_s, cur_line, from_main = W.cfg(path, managed)
+        if _parse_num(cur_s) == v:
+            continue
+        adds.append((f"cfg:{path}", cfg_line(path, lval(v))))
+        if from_main and cur_line:
+            ev.append(cur_line)
+    blur_s, blur_line, blur_main = W.cfg("decoration.blur.enabled", managed)
+    if want_blur and blur_s != "true":
+        adds.append(("cfg:decoration.blur.enabled", cfg_line("decoration.blur.enabled", "true")))
+    if not adds:
+        return None
+    if want_blur and blur_s == "true" and blur_main and blur_line:
+        ev.append(blur_line)
+    summary = f"Make focused windows {int(act * 100)}% and unfocused windows {int(ina * 100)}% opaque"
+    if want_blur:
+        summary += ", with blur behind them" + (" (already enabled)" if blur_s == "true" else "")
+    return vary(rng, req), Change(summary, adds, ref="the transparency", evidence=ev)
+
+
+ANIM_SPEED_REQS = [
+    (0.5, ["make the animations faster", "speed up the animations", "animations are too slow", "make animations snappier",
+           "make animations twice as fast", "2x faster animations", "animation speed 2x", "faster animations"]),
+    (0.75, ["make the animations a bit faster", "slightly faster animations", "speed up animations a little"]),
+    (0.33, ["make animations 3x faster", "make the animations much faster", "animations are way too slow"]),
+    (2.0, ["slow down the animations", "make animations slower", "animations are too fast", "animations twice as slow",
+           "make the animations half as fast", "slower animations"]),
+    (1.5, ["make the animations a bit slower", "slow the animations down a little"]),
+]
+
+
+def _anim_speed(rng, W: HyprWorld, managed):
+    """Scale every animation: each leaf with its own speed would otherwise ignore a global change."""
+    factor, reqs = rng.choice(ANIM_SPEED_REQS)
+    mine = {e.slot: e.line for e in managed if e.slot.startswith("anim:")}
+    adds, ev, seen = [], [], set()
+    for line in W.flat:
+        if not line.startswith("hl.animation("):
+            continue
+        f = _anim_fields(line)
+        leaf = f.get("leaf", "").strip('"')
+        if not leaf or leaf in seen:
+            continue
+        seen.add(leaf)
+        base = mine.get(f"anim:{leaf}", line)
+        f = _anim_fields(base)
+        if f.get("enabled") == "false" or "speed" not in f:
+            continue
+        new = max(0.1, round(float(f["speed"]) * factor, 2))
+        f["speed"] = f"{new:g}"
+        adds.append((f"anim:{leaf}", _anim_line(f)))
+        if base == line:
+            ev.append(line)
+    if not adds:
+        g = mine.get("anim:global")
+        f = _anim_fields(g) if g else {"leaf": '"global"', "enabled": "true", "speed": "8", "bezier": '"default"'}
+        f["speed"] = f"{max(0.1, round(float(f.get('speed', '8')) * factor, 2)):g}"
+        adds.append(("anim:global", _anim_line(f)))
+    verb = "Speed up" if factor < 1 else "Slow down"
+    summary = f"{verb} all animations: every speed x{factor:g} (lower is faster)"
+    return vary(rng, rng.choice(reqs)), Change(summary, adds, ref="the animation speed", evidence=ev)
+
+
+SINGLE_RULES = [("wtv1", "w[tv1]"), ("f1", "f[1]")]
+
+
+def _single_window(rng, W: HyprWorld, managed):
+    what = rng.choice(["border", "border", "gaps"])
+    if what == "border":
+        word = rng.choice(["border", "outline", "frame", "window border"])
+        req = pick(rng, ["remove the {w} when there's only one window", "no {w} when only one window is on screen",
+                         "hide the {w} when a window is alone", "smart borders", "don't draw a {w} around a single window",
+                         "only show the {w} when there are several windows"], w=word)
+        adds = [(f"wrule:smartgaps:{s}", f'hl.window_rule({{ match = {{ float = false, workspace = "{ws}" }}, border_size = 0 }})')
+                for s, ws in SINGLE_RULES]
+        summary = "Hide the border of a tiled window when it is alone on its workspace"
+    else:
+        req = rng.choice(["no gaps when there's only one window", "remove the gaps around a lone window",
+                          "a single window should fill the screen without gaps"])
+        adds = [(f"wsrule:smartgaps:{s}", f'hl.workspace_rule({{ workspace = "{ws}", gaps_out = 0, gaps_in = 0 }})')
+                for s, ws in SINGLE_RULES]
+        summary = "Remove the gaps when a workspace has a single tiled window"
+    return vary(rng, req), Change(summary, adds, ref="the single-window rule")
+
+
+def fam_look(rng, W: HyprWorld, managed):
+    r = rng.random()
+    if r < 0.4:
+        return _transparency(rng, W, managed)
+    if r < 0.75:
+        return _anim_speed(rng, W, managed)
+    return _single_window(rng, W, managed)
+
 
 FAMILIES = [
     (10, "num", fam_num), (7, "bool", fam_bool), (4, "enum", fam_enum), (5, "keyboard", fam_keyboard),
@@ -1445,12 +1567,12 @@ FAMILIES = [
     (2.5, "move_app_bind", fam_move_app_bind), (12, "bind_action", fam_bind_action), (3, "bind_bulk", fam_bind_bulk),
     (5, "media", fam_media), (4, "unbind", fam_unbind), (1.5, "submap", fam_submap), (10, "window_rule", fam_window_rule),
     (4, "workspace_rule", fam_workspace_rule), (3, "layer_rule", fam_layer_rule), (4, "autostart", fam_autostart),
-    (3, "env", fam_env), (5, "monitor", fam_monitor), (2, "gesture", fam_gesture), (3, "animation", fam_animation),
+    (3, "env", fam_env), (5, "monitor", fam_monitor), (2, "gesture", fam_gesture), (3, "animation", fam_animation), (4, "look", fam_look),
     (1.5, "device", fam_device), (6, "remove", fam_remove), (2, "noop", fam_noop),
 ]
 
 PRIOR_FAMILIES = [fam_num, fam_bool, fam_enum, fam_colors, fam_bind_app, fam_bind_action, fam_media, fam_window_rule,
-                  fam_workspace_rule, fam_layer_rule, fam_autostart, fam_env, fam_monitor, fam_gesture, fam_animation,
+                  fam_workspace_rule, fam_layer_rule, fam_autostart, fam_env, fam_monitor, fam_gesture, fam_animation, fam_look,
                   fam_keyboard, fam_device]
 
 
