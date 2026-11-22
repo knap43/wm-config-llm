@@ -796,7 +796,11 @@ def fam_output(rng, W: SwayWorld, managed):
         path = rng.choice(["~/Pictures/wallpaper.jpg", "~/Pictures/wall.png", "~/.config/sway/bg.png", "/usr/share/backgrounds/sway/Sway_Wallpaper_Blue_1920x1080.png"])
         mode = rng.choice(["fill", "fill", "fit", "center", "stretch"])
         line, prop, out = f"output * bg {path} {mode}", "bg", "*"
-        req = pick(rng, ["set my wallpaper to {p}", "use {p} as the background ({m})", "wallpaper {p}"], p=path, m=mode)
+        if rng.random() < 0.5:  # an unstated mode means the default, fill
+            mode = "fill"
+            req = pick(rng, ["set my wallpaper to {p}", "wallpaper {p}"], p=path)
+        else:
+            req = pick(rng, ["use {p} as the background ({m})", "set my wallpaper to {p}, {m} mode"], p=path, m=mode)
         summary = f"Set the wallpaper to {path} ({mode})"
     else:
         col = rng.choice(list(COLORS))

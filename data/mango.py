@@ -936,7 +936,11 @@ def fam_wallpaper(rng, W: MangoWorld, managed):
     mode = rng.choice(["fill", "fill", "fit", "center", "stretch"])
     mains = [l for l in W.flat if l.startswith("exec_once=swaybg")]
     adds, ev = take_over(W, managed, mains)
-    req = pick(rng, ["set my wallpaper to {p}", "use {p} as the background ({m})", "wallpaper {p}"], p=path, m=mode)
+    if rng.random() < 0.5:  # an unstated mode means the default, fill
+        mode = "fill"
+        req = pick(rng, ["set my wallpaper to {p}", "wallpaper {p}"], p=path)
+    else:
+        req = pick(rng, ["use {p} as the background ({m})", "set my wallpaper to {p}, {m} mode"], p=path, m=mode)
     return vary(rng, req), Change(f"Start swaybg with {path} ({mode}) as the wallpaper", adds + [("exec:swaybg", f"exec_once=swaybg -i {path} -m {mode}")],
                                   ref="the wallpaper", evidence=ev)
 
